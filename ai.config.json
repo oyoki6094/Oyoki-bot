@@ -1,0 +1,4 @@
+{
+  "groqApiKey": "COLLE_TA_CLE_ICI",
+  "model": "openai/gpt-oss-120b"
+}
