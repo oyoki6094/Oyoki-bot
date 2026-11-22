@@ -74,10 +74,10 @@ async function connectToWhatsapp(handleMessage) {
 ╔══════════════════╗
       *Oyoki Bot Connected Successfully* 🚀
 ╠══════════════════╣
-> "Always Forward. Digital Crew, one of the best."
+> "Always Forward. Oyoki, one of the best."
 ╚══════════════════╝
 
-*Digital Crew 243*
+*Oyoki*
                 `;
 
                 await sock.sendMessage(chatId, {
