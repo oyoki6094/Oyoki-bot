@@ -140,4 +140,4 @@ async function connectToWhatsapp(handleMessage) {
     return sock;
 }
 
-export default connectToWhatsapp;
+export default connectToWhatsapp; 
