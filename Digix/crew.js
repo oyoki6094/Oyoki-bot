@@ -151,4 +151,5 @@ async function connectToWhatsapp(handleMessage) {
     return sock;
 }
 
+
 export default connectToWhatsapp;
