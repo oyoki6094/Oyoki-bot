@@ -1,154 +1,64 @@
-import { makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } from 'baileys';
-import readline from 'readline';
-import deployAsPremium from '../utils/DigixV.js';
-import configmanager from '../utils/configmanager.js';
-import presence from '../utils/presence.js';
-import pino from 'pino';
-import fs from 'fs';
+import configmanager from '../utils/configmanager.js'
 
-const data = 'sessionData';
-
-async function getUserNumber() {
-    return new Promise((resolve) => {
-        const rl = readline.createInterface({
-            input: process.stdin,
-            output: process.stdout,
-        });
-
-        rl.question('📲 Enter your WhatsApp number (with country code, e.g., 243xxxx): ', (number) => {
-            rl.close();
-            resolve(number.trim());
-        });
-    });
+function ensureUser(number) {
+    if (!configmanager.config.users[number]) {
+        configmanager.config.users[number] = {}
+    }
 }
 
-async function connectToWhatsapp(handleMessage) {
-    const { version, isLatest } = await fetchLatestBaileysVersion();
-    console.log(version);
-
-    const { state, saveCreds } = await useMultiFileAuthState(data);
-
-    const sock = makeWASocket({
-        version: version,
-        auth: state,
-        printQRInTerminal: false,
-        syncFullHistory: true,
-        markOnlineOnConnect: true,
-        logger: pino({ level: 'silent' }),
-        keepAliveIntervalMs: 10000,
-        connectTimeoutMs: 60000,
-        generateHighQualityLinkPreview: true,
-    });
-
-    // --- Marque chaque message envoyé par le bot lui-même ---
-    // Ça permet de distinguer "le bot a répondu" de "toi tu as écrit depuis ton téléphone",
-    // utile pour que l'IA se mette en pause quand tu es réellement actif.
-    const originalSendMessage = sock.sendMessage.bind(sock);
-    sock.sendMessage = async (...args) => {
-        const sent = await originalSendMessage(...args);
-        if (sent?.key?.id) presence.markBotSent(sent.key.id);
-        return sent;
-    };
-
-    sock.ev.on('creds.update', saveCreds);
-
-    sock.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect } = update;
-
-        if (connection === 'close') {
-            const statusCode = lastDisconnect?.error?.output?.statusCode;
-            const reason = lastDisconnect?.error?.toString() || 'unknown';
-            console.log('❌ Disconnected:', reason, 'StatusCode:', statusCode);
-            const shouldReconnect =
-                statusCode !== DisconnectReason.loggedOut && reason !== 'unknown';
-            if (shouldReconnect) {
-                console.log('🔄 Reconnecting in 5 seconds...');
-                setTimeout(() => connectToWhatsapp(handleMessage), 5000);
-            } else {
-                console.log('🚫 Logged out permanently. Please reauthenticate manually.');
-            }
-        } else if (connection === 'connecting') {
-            console.log('⏳ Connecting...');
-        } else if (connection === 'open') {
-            console.log('✅ WhatsApp connection established!');
-
-            // --- FONCTIONNALITÉ WELCOME MESSAGE ---
-            try {
-                const chatId = '23566899256@s.whatsapp.net'; // ton numéro ou le groupe cible
-                const imagePath = './database/DigixCo.jpg';
-
-                if (!fs.existsSync(imagePath)) {
-                    console.warn('⚠️ Image not found at path:', imagePath);
-                }
-
-                const messageText = `
-╔══════════════════╗
-      *Oyoki Bot Connected Successfully* 🚀
-╠══════════════════╣
-> "Always Forward. Digital Crew, one of the best."
-╚══════════════════╝
-
-*Digital Crew 243*
-                `;
-
-                await sock.sendMessage(chatId, {
-                    image: { url: imagePath },
-                    caption: messageText,
-                    footer: '💻 Powered by DigiX Crew',
-                });
-
-                console.log('📩 Welcome message sent successfully!');
-            } catch (err) {
-                console.error('❌ Error sending welcome message:', err);
-            }
-            
-
-            sock.ev.on('messages.upsert', async (msg) => handleMessage(sock, msg));
-        }
-    });
-
-    setTimeout(async () => {
-        if (!state.creds.registered) {
-            console.log('⚠️ Not logged in. Preparing pairing process...');
-            try {
-                const asPremium = true; // await deployAsPremium();
-                const number = 23566899256; // mettez votre numéro WhatsApp 
-
-                if (asPremium === true) {
-                    configmanager.premiums.premiumUser['c'] = { creator: '23566899256' };
-                    configmanager.saveP();
-                    configmanager.premiums.premiumUser['p'] = { premium: number };
-                    configmanager.saveP();
-                }
-
-                console.log(`🔄 Requesting pairing code for ${number}`);
-                const code = await sock.requestPairingCode(number, 'OYOKIBOT');
-                console.log('📲 Pairing Code:', code);
-                console.log('👉 Enter this code on your WhatsApp app to pair.');
-
-                setTimeout(() => {
-                    configmanager.config.users[number] = {
-                        sudoList: ['23566899256@s.whatsapp.net'], // emplace par ton numéro WhatsApp 
-                        tagAudioPath: 'tag.mp3',
-                        antilink: true,
-                        response: true,
-                        autoreact: false,
-                        prefix: '.',
-                        reaction: '🎯',
-                        welcome: false,
-                        record: true,
-                        type: false,
-                        publicMode: false,
-                    };
-                    configmanager.save();
-                }, 2000);
-            } catch (e) {
-                console.error('❌ Error while requesting pairing code:', e);
-            }
-        }
-    }, 5000);
-
-    return sock;
+async function reply(client, remoteJid, text) {
+    await client.sendMessage(remoteJid, { text })
 }
 
-export default connectToWhatsapp;
+export async function setAi(client, message, args) {
+    const number = client.user.id.split(':')[0]
+    const remoteJid = message.key.remoteJid
+    ensureUser(number)
+    const choice = (args[0] || '').toLowerCase()
+
+    if (choice === 'on') {
+        configmanager.config.users[number].aiEnabled = true
+        configmanager.save()
+        await reply(client, remoteJid, "🤖 Réponse automatique par IA *activée*. Je répondrai à ta place quand tu n'es pas actif, et je te signalerai ce qui a besoin de toi.")
+    } else if (choice === 'off') {
+        configmanager.config.users[number].aiEnabled = false
+        configmanager.save()
+        await reply(client, remoteJid, '🚫 Réponse automatique par IA *désactivée*.')
+    } else {
+        await reply(client, remoteJid, 'Utilise : *.ia on* ou *.ia off*')
+    }
+}
+
+export async function setStyle(client, message, args) {
+    const number = client.user.id.split(':')[0]
+    const remoteJid = message.key.remoteJid
+    ensureUser(number)
+    const style = args.join(' ').trim()
+
+    if (!style) {
+        await reply(client, remoteJid, "Décris ton style d'écriture, exemple :\n*.setstyle Je parle en français familier, avec des emojis, phrases courtes, parfois du camfranglais*")
+        return
+    }
+
+    configmanager.config.users[number].aiStyle = style
+    configmanager.save()
+    await reply(client, remoteJid, "✍️ Style d'écriture enregistré pour l'IA.")
+}
+
+export async function setOwnerName(client, message, args) {
+    const number = client.user.id.split(':')[0]
+    const remoteJid = message.key.remoteJid
+    ensureUser(number)
+    const name = args.join(' ').trim()
+
+    if (!name) {
+        await reply(client, remoteJid, 'Utilise : *.setname Oyoki*')
+        return
+    }
+
+    configmanager.config.users[number].aiOwnerName = name
+    configmanager.save()
+    await reply(client, remoteJid, `✅ L'IA te présentera comme *${name}*.`)
+}
+
+export default { setAi, setStyle, setOwnerName }
